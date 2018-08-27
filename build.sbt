@@ -1,4 +1,4 @@
-name := "RST"
+name := "qfs"
 
 version := "1.0"
 
