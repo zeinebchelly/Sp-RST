@@ -16,7 +16,11 @@
  * limitations under the License.
  */
 
-package rst
+/**
+ * @author Beck Gaël & Chelly Dagdia Zaineb
+ */
+
+package qfs
 
 import scala.util.Random
 import scala.collection.mutable.ArrayBuffer
@@ -32,7 +36,7 @@ import scala.collection.mutable.HashSet
 import scala.collection.mutable.HashMap
 import org.apache.spark
 import java.io._
-import scala.math.{min, max, pow}
+import scala.math.{min, max}
 import org.apache.spark.SparkContext
 import org.apache.spark.mllib.tree.RandomForest
 import org.apache.spark.mllib.tree.model.RandomForestModel
@@ -40,7 +44,6 @@ import org.apache.spark.mllib.regression.LabeledPoint
 
 /**
  * Theses functions are used to preprocess raw data                    
- * @author Beck Gaël & Chelly Dagdia Zaineb
  **/
 object Fcts extends Serializable
 {
@@ -71,7 +74,12 @@ object Fcts extends Serializable
     
     val discretizeRDDstr = rdd.map( vector => vector.zipWithIndex.map{ case(value, idx) => (whichInterval(value, ranges(idx)).toString, idx) }) 
 
-    val fromStrToIdx = sc.broadcast( ranges.map( range => (range :+ Double.PositiveInfinity).map( v => whichInterval(v, range).toString ).zipWithIndex.map{ case(str, idx) => (str, idx.toDouble) }.toMap ).zipWithIndex.map(_.swap).toMap )
+    val fromStrToIdx = sc.broadcast( 
+      ranges.map( range => (range :+ Double.PositiveInfinity).map( v => whichInterval(v, range).toString ).zipWithIndex.map{ case(str, idx) => (str, idx.toDouble) }.toMap )
+        .zipWithIndex
+        .map(_.swap)
+        .toMap
+    )
 
     val discretizeRDD = discretizeRDDstr.map(_.map{ case(v, idx2) => fromStrToIdx.value(idx2)(v) })
     rdd.unpersist(false)
@@ -81,109 +89,29 @@ object Fcts extends Serializable
   /*
    * Determine in which interval falls a value given a specific range. Left exclude Right include
    */
-  val whichInterval = (d: Double, range: IndexedSeq[Double]) =>
+  val whichInterval = (d:Double, range:IndexedSeq[Double]) =>
   {
     var continue = true
     var bucketNumber = 0
-    while( continue && d > range(bucketNumber)) {
+    while( continue && d > range(bucketNumber) )
+    {
       bucketNumber += 1
       if( bucketNumber == range.size ) continue = false
     }
-    if (bucketNumber == 0) (Double.NegativeInfinity,range(bucketNumber))
-    else if (bucketNumber == range.size) (range(bucketNumber - 1), Double.PositiveInfinity)
+    if ( bucketNumber == 0 ) (Double.NegativeInfinity,range(bucketNumber))
+    else if ( bucketNumber == range.size ) (range(bucketNumber - 1), Double.PositiveInfinity)
     else (range(bucketNumber - 1), range(bucketNumber))
   }
 
-  val divideBySelectedFeatures = (discretizedRDD:RDD[(Long, Array[Double], Double)], columnsOfFeats: Array[Array[Int]]) =>
+  val divideByFeatures = (discretizedRDD:RDD[(Long, Array[Double], Double)], nbColumn:Int, nbFeatures:Int) =>
   {
+    val sizeColumn = nbFeatures / nbColumn
+    val shuffleFeats = Random.shuffle(0 to nbFeatures - 1).toArray
+    val columnsOfFeats = (for( i <- 0 to nbColumn ) yield(shuffleFeats.slice(sizeColumn * i, sizeColumn * (i + 1)))).toArray
 
-    val divideByFeatsRDD = discretizedRDD.map{ case(id, vector, label) => (id, for( feats <- columnsOfFeats ) yield(for( feat <- feats ) yield(vector(feat))), label) }
-    
-    divideByFeatsRDD
+    val divideByFeatsRDD = if( nbColumn == 0 ) discretizedRDD.map{ case(id, vector, label) => (id, Array(vector), label) }
+      else discretizedRDD.map{ case(id, vector, label) => (id, for( feats <- columnsOfFeats ) yield(for( feat <- feats ) yield(vector(feat))), label) }
+    (divideByFeatsRDD, columnsOfFeats)
   }
-
-
-  def rddTranspose(rdd:RDD[Array[Double]]) : RDD[Array[Double]] =
-  {
-    val rddT = rdd.zipWithIndex
-                    .flatMap{ case(x, i) => (for( j <- x.indices ) yield( (j, (i, x(j))) )).toIterator }
-                    .groupByKey
-                    .sortByKey()
-                    .map{ case(i, x) => x.toArray.sortBy(_._1) }
-                    .map(_.map(_._2) )
-
-    rddT
-  }
-
-
-
-  /**
-   * Create a tab with random vector where component are taken on normal law N(0,1) for LSH
-   */
-  def genHashTabs(nb:Int = 1, dim:Int) =
-  {
-    val hashTab = new Array[Array[Double]](nb)
-    for( ind <- 0 until nb)
-    {
-      val hashVec = new Array[Double](dim)
-      for( ind2 <- 0 until dim)
-        hashVec(ind2) = scala.util.Random.nextGaussian
-      hashTab(ind) = hashVec
-    }
-    hashTab
-  }
-
-  /**
-   *  Generate the hash value for a given vector x depending on w, b, tabHash1
-   */
-  def hashfunc(x:Array[Double], w:Double, b:Double, hashTab:Array[Array[Double]]) =
-  {
-    val tabHash = new Array[Double](hashTab.size)
-    for( ind <- hashTab.indices)
-    {
-      var sum = 0D
-      for( ind2 <- x.indices )
-        sum += ( x(ind2) * hashTab(ind)(ind2) )
-      tabHash(ind) = (sum + b) / w
-    }
-    tabHash.reduce(_ + _)
-  }
-
-
-  def euclidean(v1: Array[Double], v2: Array[Double]) = v1.zip(v2).map{ case (a, b) => pow(a - b, 2) }.reduce(_ + _)
-
-  def rapidClusteringofFeature(rdd: RDD[Array[Double]], nbBlocs: Int, k: Int) =
-  {
-    val w = 1D
-    val b = w * Random.nextDouble
-    val hashTab = genHashTabs(1, rdd.first.size)
-
-    val columnsOfFeats = rdd.zipWithIndex.map{ case (vector, featID) => (featID, vector, hashfunc(vector, w, b, hashTab)) }
-      .sortBy({ case (_, _, hashV) => hashV}, true, nbBlocs)
-      .mapPartitionsWithIndex( (idx, it) =>
-      {
-        val localData = HashMap( it.map{ case (featID, vector, _ ) => (featID, vector) }.toSeq:_* )
-        val clusters = ArrayBuffer.empty[(Int, Int)]
-        var label = idx + 10000
-        while( ! localData.isEmpty )
-        {
-          val randomV = localData.head._2
-          val cluster = localData.map{ case (featID, vector2) => (featID, euclidean(randomV, vector2)) }.toArray.sortBy(_._2).take(k).map(_._1)
-          localData --= cluster
-          clusters ++= cluster.map( featID => (label, featID.toInt))
-          label += 1
-        }
-        clusters.groupBy(_._1).map{ case (_, values) => values.map(_._2).toArray }.toIterator
-      })
-      .collect
-
-    val (columnsOfSize1, otherColumns) = columnsOfFeats.partition(_.size == 1)
-    val randomColumnSelected = for( i <- 0 until columnsOfSize1.size ) yield( Random.nextInt(otherColumns.size) )
-    randomColumnSelected.zipWithIndex.foreach{ case (i, s1) => otherColumns(i) = otherColumns(i) ++ columnsOfSize1(s1) }
-    otherColumns
-
-
-  }
-
 
 }
