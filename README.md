@@ -4,9 +4,11 @@ Big Data reduction is a main point of interest across a wide variety of fields. 
 alone. Rough Set Theory (RST) can be used as such a technique to discover data dependencies and to reduce the number of features contained in a dataset using the data alone, requiring no additional information. However, despite being a powerful feature selection technique, RST is computationally expensive and only practical for small datasets. Therefore, we present a novel efficient distributed Rough Set Theory based algorithm for large-scale data pre-processing under the Spark framework. Our method named Sp-RST reduces the computational effort of the rough set computations without any significant information loss, as it splits the given dataset into partitions with smaller numbers of features which are then processed in parallel. This distributed RST version is part of the Marie Sklodowska-Curie [RoSTBiDFramework](http://rostbid.dcs.aber.ac.uk/) project. 
 
 ## Getting Started
+
 Please, follow the following instructions to use Sp-RST.
 
 ### Installing
+
 To be able to use the Sp-RST code, you will need to install the following:
 
 1. Install Scala 2.11.8
@@ -14,7 +16,13 @@ To be able to use the Sp-RST code, you will need to install the following:
 
 (please, see build.sbt for the configuration)
 
-### Sp-RST Parameters
+### Main Sp-RST Parameters
+
+- val rawdata = Path to the input data set
+- val sep = Separator type
+- val savingPath = Path where results will be saved
+- val nbColumn = Number of partitions 
+- val nbIterIfPerFeat = Number of iterations
 
 ### Running Sp-RST
 
