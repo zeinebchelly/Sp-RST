@@ -1,4 +1,4 @@
-name := "LSH"
+name := "RST"
 
 version := "1.0"
 
