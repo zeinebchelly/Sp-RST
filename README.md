@@ -18,20 +18,22 @@ To be able to use the Sp-RST code, you will need to install the following:
 
 ### Main Sp-RST Parameters
 
-- val rawdata = Path to the input data set
-- val sep = Separator type
-- val savingPath = Path where results will be saved
-- val nbColumn = Number of partitions 
-- val nbIterIfPerFeat = Number of iterations
+- **rawdata** = The input data set
+- **sep** = Separator type
+- **nbColumn** = Number of partitions 
+- **nbIterIfPerFeat** = Number of iterations
 
 ### Running Sp-RST
 
 To run the code, you need to go through the below steps:
 
-1. Create the .jar file (using sbt)
-2. To execute Sp-RST locally:
-- 
--
+1. Create the .jar file *(using sbt)*
+- sbt package
+2. Example on how to execute Sp-RST locally:
+```
+spark-submit C:\...\Sp-RST\target\scala-2.11\qfs_2.11-1.0.jar inputData ' ' 20 10
+
+```
 
 ## Publications
 
