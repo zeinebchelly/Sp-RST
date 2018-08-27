@@ -7,10 +7,14 @@ alone. Rough Set Theory (RST) can be used as such a technique to discover data d
 Please, follow the following instructions to use Sp-RST.
 
 ### Installing
-To be able to use the Sp-RST code, you will need to installing the following:
+To be able to use the Sp-RST code, you will need to install the following:
 
 1. Install Scala 2.11.8
 2. Install Spark 2.1.1
+
+(please, see build.sbt for the configuration)
+
+### Sp-RST Parameters
 
 ### Running Sp-RST
 
