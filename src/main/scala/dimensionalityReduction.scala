@@ -1,21 +1,21 @@
-package rst
+/**
+ * @authors Beck Gaël & Chelly Dagdia Zaineb
+ */
 
-import org.apache.spark.{SparkContext, HashPartitioner}
+package qfs
+
+import org.apache.spark.SparkContext
+import org.apache.spark.HashPartitioner
 import org.apache.spark.rdd.RDD
 import scala.collection.mutable.{ArrayBuffer, ListBuffer}
-import scala.collection.immutable
 import scala.util.Random
 import org.apache.spark.broadcast.Broadcast
 
 
-/**
- * @authors Beck Gaël & Chelly Dagdia Zaineb
- */
-class DimReduction(@transient val sc:SparkContext) extends Serializable
-{
+class DimReduction(@transient val sc:SparkContext) extends Serializable {
 
   // Define KeyValueExtract function
-  val keyValueExtract = (f: Array[Int], vector: Array[Double]) =>
+  val keyValueExtract = (f:Array[Int], vector: Array[Double]) =>
   {  
     val key = ListBuffer.empty[Double]
     for(i <- 0 until f.size) key += vector(f(i))
@@ -23,16 +23,16 @@ class DimReduction(@transient val sc:SparkContext) extends Serializable
   }
 
   // Define a function to calculate the IND of each element in the list indDecisionClasses
-  val getIND = (f: Array[Int], data: RDD[(Long, Array[Double], Double)]) =>
+  val getIND = (f :Array[Int], data:RDD[(Long, Array[Double], Double)]) =>
   {
      val indFeatures = data.map{ case (id, vector, label) => (keyValueExtract(f, vector), ArrayBuffer(id)) }.foldByKey(ArrayBuffer.empty[Long])(_ ++= _)
      indFeatures.map{ case (listValues, objectsId) => objectsId }.collect
   }
 
   // Compute dependency
-  def dependency(indecability: Array[ArrayBuffer[Long]], indDecisionClasses: Broadcast[Array[ArrayBuffer[Long]]]) = (for( indCl <- indDecisionClasses.value ) yield( (for( i <- indecability if( i.intersect(indCl).size != i.size ) ) yield( i.size )).reduce(_ + _) )).reduce(_ + _)
+  def dependency(indecability: Array[ArrayBuffer[Long]], indDecisionClasses:Broadcast[Array[ArrayBuffer[Long]]]) = (for( indCl <- indDecisionClasses.value ) yield( (for( i <- indecability if( i.intersect(indCl).size != i.size ) ) yield( i.size )).reduce(_ + _) )).reduce(_ + _)
 
-  val generateIndecidabilityDecisionClasses = (data: RDD[(Long, Array[Double], Double)]) =>
+  val generateIndecidabilityDecisionClasses = (data:RDD[(Long, Array[Double], Double)]) =>
   {
     val indDecisionClass = data.map{ case (id, vector, label) => (label, ArrayBuffer(id)) }.foldByKey(ArrayBuffer.empty[Long])(_ ++= _)
     sc.broadcast( indDecisionClass.map{ case (label, objects) => objects }.collect )
@@ -47,11 +47,11 @@ class DimReduction(@transient val sc:SparkContext) extends Serializable
    * First is the distributed version
    * Second is pure local one
    */
-  def roughSetCore(data:RDD[(Long, Array[Double], Double)], allCombinations: Broadcast[Array[Array[Int]]]) =
+  def roughSetCore(data:RDD[(Long, Array[Double], Double)], allCombinations:Broadcast[Array[Array[Int]]]) =
   {
     val indDecisionClasses = generateIndecidabilityDecisionClasses(data)
     // 1. Calculate the IND for all the combination of features
-    val indAllCombinations = sc.parallelize(allCombinations.value).map(f => (f, f.size, getIND(f, data)))
+    val indAllCombinations = sc.parallelize( allCombinations.value.map(f => (f, f.size, getIND(f, data))) )
     val dependencyAll = indAllCombinations.map{ case(comboFeatures, sizeFeatures, indecability) => (comboFeatures, sizeFeatures, dependency(indecability, indDecisionClasses)) }.cache
     var dependencyMax = dependencyAll.max()(Ordering[Int].on(_._3))._3
     val allDependencyMax = dependencyAll.filter(l => l._3 == dependencyMax)
@@ -62,14 +62,14 @@ class DimReduction(@transient val sc:SparkContext) extends Serializable
     allReductSet    
   }
 
-  def roughSetCore(data: Array[(Long, Array[Double], Double)], allCombinations: Array[Array[Int]]) =
+  def roughSetCore(data:Array[(Long, Array[Double], Double)], allCombinations:Array[Array[Int]]) =
   {
     val indDecisionClasses = generateIndecidabilityDecisionClasses_local(data)
     // 1. Calculate the IND for all the combination of features
     val indAllCombinations = allCombinations.map(f => (f, f.size, getIND_local(f, data)))
     val dependencyAll = indAllCombinations.map{ case(comboFeatures, sizeFeatures, indecability) => (comboFeatures, sizeFeatures, dependency_local(indecability, indDecisionClasses)) }
     var dependencyMax = dependencyAll.maxBy(_._3)._3
-    val allDependencyMax = dependencyAll.filter{ case (_, _, dependency) => dependency == dependencyMax }
+    val allDependencyMax = dependencyAll.filter(l => l._3 == dependencyMax)
     val maxDependencyMinFeatureNb = allDependencyMax.minBy(_._2)._2
     val allReductSet = allDependencyMax.filter{ case(_, sizeFeatures, _) => sizeFeatures == maxDependencyMinFeatureNb }.map{ case(features, _, _) => features }
     allReductSet    
@@ -79,7 +79,7 @@ class DimReduction(@transient val sc:SparkContext) extends Serializable
   /*
    *  RoughSet classic version
    */
-  def roughSet(data: RDD[(Long, Array[Double], Double)], allCombinations: Broadcast[Array[Array[Int]]]) =
+  def roughSet(data:RDD[(Long, Array[Double], Double)], allCombinations:Broadcast[Array[Array[Int]]]) =
   {
     data.cache
     roughSetCore(data, allCombinations)
@@ -88,20 +88,19 @@ class DimReduction(@transient val sc:SparkContext) extends Serializable
   /*
    *  RoughSet working by range of features
    */
-  def roughSetPerFeats(data: RDD[(Long, Array[Array[Double]], Double)], nbColumns:Int, columnsOfFeats:Array[Array[Int]]) =
+  def roughSetPerFeats(data:RDD[(Long, Array[Array[Double]], Double)], nbColumns:Int, columnsOfFeats:Array[Array[Int]]) =
   {
     data.cache
-    val allreductSetPerFeats = for( column <- 0 until nbColumns ) yield(
-      {
-        val dataPerFeat = data.map{ case(idx, vectorPerFeats, label) => (idx, vectorPerFeats(column), label) }
-        dataPerFeat.cache
-        val originalFeatures = columnsOfFeats(column)
-        val mapOriginalFeatures = originalFeatures.zipWithIndex.map(_.swap).toMap
-        val features = (0 until originalFeatures.size).toArray
-        val allCombinations = features.flatMap(features.combinations).drop(1)
-        val allCombinationsBC = sc.broadcast(allCombinations)
-        val allReductSet = roughSetCore(dataPerFeat, allCombinationsBC)
-        allReductSet.map(_.map(mapOriginalFeatures))
+    val allreductSetPerFeats = for( column <- 0 until nbColumns ) yield({
+      val dataPerFeat = data.map{ case(idx, vectorPerFeats, label) => (idx, vectorPerFeats(column), label) }
+      dataPerFeat.cache
+      val originalFeatures = columnsOfFeats(column)
+      val mapOriginalFeatures = originalFeatures.zipWithIndex.map(_.swap).toMap
+      val features = (0 until originalFeatures.size).toArray
+      val allCombinations = features.flatMap(features.combinations).drop(1)
+      val allCombinationsBC = sc.broadcast(allCombinations)
+      val allReductSet = roughSetCore(dataPerFeat, allCombinationsBC)
+      allReductSet.map(_.map(mapOriginalFeatures))
       })
     allreductSetPerFeats.map( allReduct => allReduct(Random.nextInt(allReduct.size)) ).fold(Array.empty[Int])(_ ++ _)
   }
@@ -111,16 +110,15 @@ class DimReduction(@transient val sc:SparkContext) extends Serializable
    */
   def roughSetPerFeatsD(data:RDD[(Long, Array[Array[Double]], Double)], nbColumns:Int, columnsOfFeats:Array[Array[Int]]) =
   {
-    val dataBC = sc.broadcast(data.collect)
-    val reduct = sc.parallelize(0 until nbColumns).map( numColumn =>
-      {
-        val dataPerFeat = dataBC.value.map{ case(idx, vectorPerFeats, label) => (idx, vectorPerFeats(numColumn), label) }
-        val originalFeatures = columnsOfFeats(numColumn)
-        val mapOriginalFeatures = originalFeatures.zipWithIndex.map(_.swap).toMap
-        val features = (0 until originalFeatures.size).toArray
-        val allCombinations = features.flatMap(features.combinations).drop(1)
-        val allReductSet = roughSetCore(dataPerFeat, allCombinations)
-        allReductSet.map(_.map(mapOriginalFeatures))
+    val dataBC = sc.broadcast(data.collect) 
+    val reduct = sc.parallelize(0 until nbColumns).map( numColumn => {
+      val dataPerFeat = dataBC.value.map{ case(idx, vectorPerFeats, label) => (idx, vectorPerFeats(numColumn), label) }
+      val originalFeatures = columnsOfFeats(numColumn)
+      val mapOriginalFeatures = originalFeatures.zipWithIndex.map(_.swap).toMap
+      val features = (0 until originalFeatures.size).toArray
+      val allCombinations = features.flatMap(features.combinations).drop(1)
+      val allReductSet = roughSetCore(dataPerFeat, allCombinations)
+      allReductSet.map(_.map(mapOriginalFeatures))
       }).map( allReduct => allReduct(Random.nextInt(allReduct.size)) ).fold(Array.empty[Int])(_ ++ _)
     reduct
   }
@@ -130,39 +128,6 @@ class DimReduction(@transient val sc:SparkContext) extends Serializable
     val comboList = ListBuffer.empty[Array[Int]]
     for( i <- 0 until features.size ) if( ! reductSet.contains(i) ) comboList += (reductSet :+ features(i))
     comboList 
-  }
-
-  /*
-   *  RoughSet working by range of features
-   */
-  def roughSetPerFeatsD2(data:RDD[(Long, Array[Array[Double]], Double)], nbColumns:Int, columnsOfFeats:Array[Array[Int]]) =
-  {
-    val neutralElement = ArrayBuffer.empty[Int]
-    def addToBuffer(buff: ArrayBuffer[Int], elem: Int) = buff += elem
-    def aggregateBuff(buff1: ArrayBuffer[Int], buff2: ArrayBuffer[Int]) = buff1 ++= buff2
-    
-    val dataBC = sc.broadcast(data.collect)
-    val secuColumns = immutable.HashSet((0 until nbColumns):_*)
-    val reduct = sc.parallelize(0 until 8888).mapPartitionsWithIndex( (idxp, it) =>
-      {
-        val reductIn = if( secuColumns.contains(idxp) )
-        {
-          val dataPerFeat = dataBC.value.map{ case(idx, vectorPerFeats, label) => (idx, vectorPerFeats(idxp), label) }
-          val originalFeatures = columnsOfFeats(idxp)
-          val mapOriginalFeatures = originalFeatures.zipWithIndex.map(_.swap).toMap
-          val features = (0 until originalFeatures.size).toArray
-          val allCombinations = features.flatMap(features.combinations).drop(1)
-          val allReductSet = roughSetCore(dataPerFeat, allCombinations)
-          allReductSet.map(_.map(mapOriginalFeatures))
-        }
-        else Array.empty[Array[Int]]
-
-        reductIn.toIterator
-      }
-    )
-    .map( allReduct => allReduct(Random.nextInt(allReduct.size)) )
-    .aggregate(neutralElement)(addToBuffer, aggregateBuff)//.fold(Array.empty[Int])(_ ++ _)
-    reduct
   }
 
   /********************************************************************************************/
